@@ -1,35 +1,65 @@
-# Mengimpor modul yang diperlukan
 import cv2
-import numpy as np
-# from yolov8 import YOLOv8 # Library ultralytic untuk YOLOv8
+import argparse
+
 from ultralytics import YOLO
+import supervision as sv
+import numpy as np
 
-# Membuat objek YOLOv8 dengan model yang sudah dilatih
-yolo = YOLO('yolov8s.pt')
 
-# Membuka kamera webcam
-cap = cv2.VideoCapture(0)
+ZONE_POLYGON = np.array([
+    [0, 0],
+    [0.5, 0],
+    [0.5, 1],
+    [0, 1]
+])
 
-# Melakukan loop selama kamera aktif
-while cap.isOpened():
-  # Membaca frame dari kamera
-  ret, frame = cap.read()
-  if not ret:
-    break
-  
-  # Mendeteksi objek pada frame dengan YOLOv8
-  results = yolo.predict(frame)
 
-  # Menampilkan hasil deteksi pada frame
-  # results.render() # Menggambar kotak dan label pada framsse
 
-  # Menampilkan frame pada jendela
-  cv2.imshow("YOLOv8 Object Detection", results.imgs[0])
+def main():
+    cap = cv2.VideoCapture(0)
 
-  # Menunggu tombol 'q' untuk keluar dari loop
-  if cv2.waitKey(1) & 0xFF == ord('q'):
-    break
+    model = YOLO("models/yolov8l.pt")
 
-# Melepaskan sumber kamera dan menutup jendela
-cap.release()
-cv2.destroyAllWindows()
+    box_annotator = sv.BoxAnnotator(
+        thickness=2,
+        text_thickness=2,
+        text_scale=1
+    )
+
+    zone_polygon = (ZONE_POLYGON * cap).astype(int)
+    zone = sv.PolygonZone(polygon=zone_polygon, frame_resolution_wh=tuple(cap))
+    zone_annotator = sv.PolygonZoneAnnotator(
+        zone=zone, 
+        color=sv.Color.red(),
+        thickness=2,
+        text_thickness=4,
+        text_scale=2
+    )
+
+    while True:
+        ret, frame = cap.read()
+
+        result = model(frame, agnostic_nms=True)[0]
+        detections = sv.Detections.from_yolov8(result)
+        labels = [
+            f"{model.model.names[class_id]} {confidence:0.2f}"
+            for _, confidence, class_id, _
+            in detections
+        ]
+        frame = box_annotator.annotate(
+            scene=frame, 
+            detections=detections, 
+            labels=labels
+        )
+
+        zone.trigger(detections=detections)
+        frame = zone_annotator.annotate(scene=frame)      
+        
+        cv2.imshow("yolov8", frame)
+
+        if (cv2.waitKey(30) == "q"):
+            break
+
+
+if __name__ == "__main__":
+    main()
